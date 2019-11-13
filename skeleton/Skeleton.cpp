@@ -25,19 +25,19 @@ namespace {
 
       argTypes.push_back(Type::getInt8PtrTy(M.getContext()));
       FunctionType* logFreeType = FunctionType::get(Type::getVoidTy(M.getContext()), argTypes, false);
-      Constant* logFree = M.getOrInsertFunction("logFree", logFreeType);
+      FunctionCallee logFree = M.getOrInsertFunction("logFree", logFreeType);
 
       std::vector<Type*> newArgs;
       newArgs.push_back(Type::getInt32PtrTy(M.getContext()));
       FunctionType* logQueryType = FunctionType::get(Type::getVoidTy(M.getContext()), newArgs, false);
-      Constant* logQuery = M.getOrInsertFunction("logQuery", logQueryType);
+      FunctionCallee logQuery = M.getOrInsertFunction("logQuery", logQueryType);
 
       FunctionType* logAllocaType = FunctionType::get(Type::getVoidTy(M.getContext()), newArgs, false);
-      Constant* logAlloca = M.getOrInsertFunction("logAlloca", logAllocaType);
+      FunctionCallee logAlloca = M.getOrInsertFunction("logAlloca", logAllocaType);
 
       argTypes.push_back(Type::getInt64Ty(M.getContext()));
       FunctionType* logMallocType = FunctionType::get(Type::getVoidTy(M.getContext()), argTypes, false);
-      Constant* logMalloc = M.getOrInsertFunction("logMalloc", logMallocType);
+      FunctionCallee logMalloc = M.getOrInsertFunction("logMalloc", logMallocType);
 
 
       for(auto &F : M) {
@@ -104,7 +104,7 @@ namespace {
 
                 argTypes.push_back(Type::getInt8PtrTy(M.getContext()));
                 FunctionType* logNewFreeType = FunctionType::get(Type::getVoidTy(M.getContext()), argTypes, false);
-                Constant* logNewFree = M.getOrInsertFunction("logFree", logNewFreeType);
+                FunctionCallee logNewFree = M.getOrInsertFunction("logFree", logNewFreeType);
 
 
                 std::vector<Value *> args;

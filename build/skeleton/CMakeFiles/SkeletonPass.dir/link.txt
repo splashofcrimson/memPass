@@ -1,0 +1,1 @@
+/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/c++   -bundle -Wl,-headerpad_max_install_names -undefined dynamic_lookup -o libSkeletonPass.so CMakeFiles/SkeletonPass.dir/Skeleton.cpp.o  -L/usr/local/opt/llvm/lib 
