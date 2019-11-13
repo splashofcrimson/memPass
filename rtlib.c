@@ -9,8 +9,8 @@ void logFree(int8_t* address) {
     printf("f, %p\n", address);
 }
 
-void logQuery(int32_t* address) {
-    printf("q, %p\n", address);
+void logQuery(int32_t* address, int64_t size) {
+    printf("q, %p, %ld\n", address, size);
 }
 
 void logAlloca(int32_t* address) {
