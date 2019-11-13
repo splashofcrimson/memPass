@@ -76,7 +76,6 @@ namespace {
             }
             
             if (StoreInst* store = dyn_cast<StoreInst>(&I)) {
-              // errs() << *store->getPointerOperandType()->getTypeID() << "\n";
               if(true) {
                 DataLayout* dataLayout = new DataLayout(&M);
                 Value* address = store->getPointerOperand();
@@ -99,6 +98,20 @@ namespace {
               if (call->getCalledFunction()->getName() == "malloc") {
                 Value* address = cast<Value>(call);
                 Value* size = call->getOperand(0);
+                builder->SetInsertPoint((&I)->getNextNode());
+
+                std::vector<Value *> args;
+                args.push_back(address);
+                args.push_back(size);
+
+                CallInst* call = builder->CreateCall(logMalloc, args, "");
+              }
+
+              if (call->getCalledFunction()->getName() == "calloc") {
+                Value* address = cast<Value>(call);
+                ConstantInt* amount = dyn_cast<ConstantInt>(call->getOperand(0));
+                ConstantInt* sizeOfOne = dyn_cast<ConstantInt>(call->getOperand(1));
+                Value* size = ConstantInt::get(Type::getInt64Ty(M.getContext()), amount->getSExtValue() * sizeOfOne->getSExtValue());
                 builder->SetInsertPoint((&I)->getNextNode());
 
                 std::vector<Value *> args;
