@@ -56,14 +56,19 @@ namespace {
 
               CallInst* call = builder->CreateCall(logAlloca, args, "");
             }
-            
+
             if (LoadInst* load = dyn_cast<LoadInst>(&I)) {
-              if (load->getType()->getTypeID() == 11) {
+              if (load->getType()->getTypeID() != 0) {
+                DataLayout* dataLayout = new DataLayout(&M);
                 Value* address = load->getPointerOperand();
+                PointerType* pointerType = cast<PointerType>(address->getType());
+                uint64_t storeSize = dataLayout->getTypeStoreSize(pointerType->getPointerElementType());
                 BitCastInst* bitcast = new BitCastInst(address, Type::getInt32PtrTy(M.getContext()), "l", (&I)->getNextNode());
                 std::vector<Value*> args;
                 Value* castAddress = cast<Value>(bitcast);
+                Value* storeSizeCast = ConstantInt::get(Type::getInt64Ty(M.getContext()), storeSize);
                 args.push_back(castAddress);
+                args.push_back(storeSizeCast);
                 builder->SetInsertPoint((&I)->getNextNode()->getNextNode());
 
                 CallInst* call = builder->CreateCall(logQuery, args, "");
@@ -71,12 +76,18 @@ namespace {
             }
             
             if (StoreInst* store = dyn_cast<StoreInst>(&I)) {
-              if(store->getType()->getTypeID() == 11) {
+              if(true) {
+                DataLayout* dataLayout = new DataLayout(&M);
                 Value* address = store->getPointerOperand();
+                PointerType* pointerType = cast<PointerType>(address->getType());
+                uint64_t storeSize = dataLayout->getTypeStoreSize(pointerType->getPointerElementType());
+                errs() << address << "\n";
                 BitCastInst* bitcast = new BitCastInst(address, Type::getInt32PtrTy(M.getContext()), "s", (&I)->getNextNode());
                 std::vector<Value*> args;
                 Value* castAddress = cast<Value>(bitcast);
+                Value* storeSizeCast = ConstantInt::get(Type::getInt64Ty(M.getContext()), storeSize);
                 args.push_back(castAddress);
+                args.push_back(storeSizeCast);
                 builder->SetInsertPoint((&I)->getNextNode()->getNextNode());
 
                 CallInst* call = builder->CreateCall(logQuery, args,  "");
@@ -87,6 +98,20 @@ namespace {
               if (call->getCalledFunction()->getName() == "malloc") {
                 Value* address = cast<Value>(call);
                 Value* size = call->getOperand(0);
+                builder->SetInsertPoint((&I)->getNextNode());
+
+                std::vector<Value *> args;
+                args.push_back(address);
+                args.push_back(size);
+
+                CallInst* call = builder->CreateCall(logMalloc, args, "");
+              }
+
+              if (call->getCalledFunction()->getName() == "calloc") {
+                Value* address = cast<Value>(call);
+                ConstantInt* amount = dyn_cast<ConstantInt>(call->getOperand(0));
+                ConstantInt* sizeOfOne = dyn_cast<ConstantInt>(call->getOperand(1));
+                Value* size = ConstantInt::get(Type::getInt64Ty(M.getContext()), amount->getSExtValue() * sizeOfOne->getSExtValue());
                 builder->SetInsertPoint((&I)->getNextNode());
 
                 std::vector<Value *> args;
