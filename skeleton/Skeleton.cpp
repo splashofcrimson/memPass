@@ -29,11 +29,11 @@ namespace {
 
       std::vector<Type*> newArgs;
       newArgs.push_back(Type::getInt32PtrTy(M.getContext()));
-      FunctionType* logQueryType = FunctionType::get(Type::getVoidTy(M.getContext()), newArgs, false);
-      Constant* logQuery = M.getOrInsertFunction("logQuery", logQueryType);
-
       FunctionType* logAllocaType = FunctionType::get(Type::getVoidTy(M.getContext()), newArgs, false);
       Constant* logAlloca = M.getOrInsertFunction("logAlloca", logAllocaType);
+      newArgs.push_back(Type::getInt64Ty(M.getContext()));
+      FunctionType* logQueryType = FunctionType::get(Type::getVoidTy(M.getContext()), newArgs, false);
+      Constant* logQuery = M.getOrInsertFunction("logQuery", logQueryType);
 
       argTypes.push_back(Type::getInt64Ty(M.getContext()));
       FunctionType* logMallocType = FunctionType::get(Type::getVoidTy(M.getContext()), argTypes, false);
@@ -56,14 +56,19 @@ namespace {
 
               CallInst* call = builder->CreateCall(logAlloca, args, "");
             }
-            
+
             if (LoadInst* load = dyn_cast<LoadInst>(&I)) {
-              if (load->getType()->getTypeID() == 11) {
+              if (load->getType()->getTypeID() != 0) {
+                DataLayout* dataLayout = new DataLayout(&M);
                 Value* address = load->getPointerOperand();
+                PointerType* pointerType = cast<PointerType>(address->getType());
+                uint64_t storeSize = dataLayout->getTypeStoreSize(pointerType->getPointerElementType());
                 BitCastInst* bitcast = new BitCastInst(address, Type::getInt32PtrTy(M.getContext()), "l", (&I)->getNextNode());
                 std::vector<Value*> args;
                 Value* castAddress = cast<Value>(bitcast);
+                Value* storeSizeCast = ConstantInt::get(Type::getInt64Ty(M.getContext()), storeSize);
                 args.push_back(castAddress);
+                args.push_back(storeSizeCast);
                 builder->SetInsertPoint((&I)->getNextNode()->getNextNode());
 
                 CallInst* call = builder->CreateCall(logQuery, args, "");
@@ -71,6 +76,7 @@ namespace {
             }
             
             if (StoreInst* store = dyn_cast<StoreInst>(&I)) {
+              // errs() << *store->getPointerOperandType()->getTypeID() << "\n";
               if(store->getType()->getTypeID() == 11) {
                 Value* address = store->getPointerOperand();
                 BitCastInst* bitcast = new BitCastInst(address, Type::getInt32PtrTy(M.getContext()), "s", (&I)->getNextNode());
