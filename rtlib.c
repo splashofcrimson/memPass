@@ -109,10 +109,10 @@ void logQuery(int32_t* address, int64_t size, int64_t line, int64_t col) {
 
     if (flag < 2) {
       if (line > -1) {
-        printf("Line %ld.%ld: Warning! Use After Free\n", line, col);
+        printf("Line %ld.%ld: Warning! Attempted to Use After Free\n", line, col);
       }
       else {
-        printf("Line ?: Warning! Use After Free\n");
+        printf("Line ?: Warning! Attempted to Use After Free\n");
       }
     }
 }
