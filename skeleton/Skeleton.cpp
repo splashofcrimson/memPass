@@ -1,153 +1,235 @@
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/Module.h"
+#include "llvm/Pass.h"
 #include "llvm/IR/Type.h"
-#include "llvm/IR/GlobalVariable.h"
-#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Module.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/Instructions.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Transforms/IPO/PassManagerBuilder.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/IRBuilder.h"
-
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/IR/LegacyPassManager.h"
+#include "llvm/IR/DebugInfoMetadata.h"
+#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 using namespace llvm;
 
 namespace {
-  struct MemPass : public ModulePass {
+  struct SkeletonPass : public ModulePass {
     static char ID;
-    MemPass() : ModulePass(ID) {}
+    SkeletonPass() : ModulePass(ID) {}
+
+    struct Metadata {
+      int64_t line;
+      int64_t col;
+    };
+
+    struct Metadata getLineAndCol(Instruction &I) {
+      struct Metadata instrMetadata = {-1, -1};
+      const DebugLoc &debugInfo = I.getDebugLoc();
+      if (debugInfo) {
+        instrMetadata.line = (int64_t)debugInfo.getLine();
+        instrMetadata.col =  (int64_t)debugInfo.getCol();
+      }
+      return instrMetadata;
+    }
 
     virtual bool runOnModule(Module &M) {
-      
-      IRBuilder<>* builder = new IRBuilder<>(M.getContext());
 
-      std::vector<Type*> argTypes;
+      auto &context = M.getContext();
+      auto VoidTy = Type::getVoidTy(context);
+      auto Int64Ty = Type::getInt64Ty(context);
+      auto Int8PtrTy = Type::getInt8PtrTy(context);
+      auto Int32PtrTy = Type::getInt32PtrTy(context);
 
-      argTypes.push_back(Type::getInt8PtrTy(M.getContext()));
-      FunctionType* logFreeType = FunctionType::get(Type::getVoidTy(M.getContext()), argTypes, false);
-      FunctionCallee logFree = M.getOrInsertFunction("logFree", logFreeType);
+      // Register logging functions from runtime library
+      // BEGIN
+      Constant* init = M.getOrInsertFunction("initialize",
+        FunctionType::get(
+          VoidTy, false
+        )
+      );
 
-      std::vector<Type*> newArgs;
-      newArgs.push_back(Type::getInt32PtrTy(M.getContext()));
-      FunctionType* logQueryType = FunctionType::get(Type::getVoidTy(M.getContext()), newArgs, false);
-      FunctionCallee logQuery = M.getOrInsertFunction("logQuery", logQueryType);
+      std::vector<Type*> mallocArgs;
+      mallocArgs.push_back(Int8PtrTy);
+      mallocArgs.push_back(Int64Ty);
+      Constant* log_malloc = M.getOrInsertFunction("logMalloc",
+        FunctionType::get(
+          VoidTy, mallocArgs, false
+        )
+      );
 
-      FunctionType* logAllocaType = FunctionType::get(Type::getVoidTy(M.getContext()), newArgs, false);
-      FunctionCallee logAlloca = M.getOrInsertFunction("logAlloca", logAllocaType);
+      std::vector<Type*> allocArgs;
+      allocArgs.push_back(Int32PtrTy);
+      Constant* log_alloca = M.getOrInsertFunction("logAlloca",
+        FunctionType::get(
+          VoidTy, allocArgs, false
+        )
+      );
 
-      argTypes.push_back(Type::getInt64Ty(M.getContext()));
-      FunctionType* logMallocType = FunctionType::get(Type::getVoidTy(M.getContext()), argTypes, false);
-      FunctionCallee logMalloc = M.getOrInsertFunction("logMalloc", logMallocType);
+      std::vector<Type*> freeArgs;
+      freeArgs.push_back(Int8PtrTy);
+      freeArgs.push_back(Int64Ty);
+      freeArgs.push_back(Int64Ty);
+      Constant* log_free = M.getOrInsertFunction("logFree",
+        FunctionType::get(
+          VoidTy, freeArgs, false
+        )
+      );
 
+      std::vector<Type*> queryArgs;
+      queryArgs.push_back(Int32PtrTy);
+      queryArgs.push_back(Int64Ty);
+      queryArgs.push_back(Int64Ty);
+      queryArgs.push_back(Int64Ty);
+      Constant* log_query = M.getOrInsertFunction("logQuery",
+        FunctionType::get(
+          VoidTy, queryArgs, false
+        )
+      );
+      // END
 
-      for(auto &F : M) {
-        if (F.getName() == "logMalloc" || F.getName() == "logFree" || F.getName() == "logQuery" || F.getName() == "logAlloca") {
-          continue;
-        }
-        for(auto &B : F) {
-          for(auto &I : B) {
+      // Initialize data structures
+      // BEGIN
+      Function* main = M.getFunction("main");
+      BasicBlock* first_bb = &*main->begin();
+      BasicBlock::iterator insertion_pt = first_bb->getFirstInsertionPt();
+
+      IRBuilder<>* builder = new IRBuilder<>(context);
+      builder->SetInsertPoint(&*insertion_pt);
+      CallInst* call = builder->CreateCall(init);
+      // END
+
+      // Iterate over instructions and insert library function calls
+      // BEGIN
+      for (auto &F : M) {
+        for (auto &B : F) {
+          for (auto &I : B) {
+            // Alloca: Log i32* stack address
             if (AllocaInst* alloca = dyn_cast<AllocaInst>(&I)) {
-              Value* address = cast<Value>(alloca);
-              BitCastInst* bitcast = new BitCastInst(address, Type::getInt32PtrTy(M.getContext()), "a", (&I)->getNextNode());
-              std::vector<Value*> args;
+              BitCastInst* bitcast = new BitCastInst(
+                cast<Value>(alloca), Int32PtrTy, "a", (&I)->getNextNode()
+              );
+
               Value* castAddress = cast<Value>(bitcast);
+              std::vector<Value*> args;
               args.push_back(castAddress);
+
               builder->SetInsertPoint((&I)->getNextNode()->getNextNode());
-
-              CallInst* call = builder->CreateCall(logAlloca, args, "");
+              CallInst* call = builder->CreateCall(log_alloca, args, "");
             }
 
-            if (LoadInst* load = dyn_cast<LoadInst>(&I)) {
-              if (load->getType()->getTypeID() != 0) {
-                DataLayout* dataLayout = new DataLayout(&M);
-                Value* address = load->getPointerOperand();
-                PointerType* pointerType = cast<PointerType>(address->getType());
-                uint64_t storeSize = dataLayout->getTypeStoreSize(pointerType->getPointerElementType());
-                BitCastInst* bitcast = new BitCastInst(address, Type::getInt32PtrTy(M.getContext()), "l", (&I)->getNextNode());
-                std::vector<Value*> args;
-                Value* castAddress = cast<Value>(bitcast);
-                Value* storeSizeCast = ConstantInt::get(Type::getInt64Ty(M.getContext()), storeSize);
-                args.push_back(castAddress);
-                args.push_back(storeSizeCast);
-                builder->SetInsertPoint((&I)->getNextNode()->getNextNode());
-
-                CallInst* call = builder->CreateCall(logQuery, args, "");
-              }
-            }
-            
-            if (StoreInst* store = dyn_cast<StoreInst>(&I)) {
-              if(true) {
-                DataLayout* dataLayout = new DataLayout(&M);
-                Value* address = store->getPointerOperand();
-                PointerType* pointerType = cast<PointerType>(address->getType());
-                uint64_t storeSize = dataLayout->getTypeStoreSize(pointerType->getPointerElementType());
-                errs() << address << "\n";
-                BitCastInst* bitcast = new BitCastInst(address, Type::getInt32PtrTy(M.getContext()), "s", (&I)->getNextNode());
-                std::vector<Value*> args;
-                Value* castAddress = cast<Value>(bitcast);
-                Value* storeSizeCast = ConstantInt::get(Type::getInt64Ty(M.getContext()), storeSize);
-                args.push_back(castAddress);
-                args.push_back(storeSizeCast);
-                builder->SetInsertPoint((&I)->getNextNode()->getNextNode());
-
-                CallInst* call = builder->CreateCall(logQuery, args,  "");
-              }
-            }
-
-            if(CallInst* call = dyn_cast<CallInst>(&I)) {
+            // Malloc/Calloc: Log i8* address and i64 size
+            if (CallInst* call = dyn_cast<CallInst>(&I)) {
               if (call->getCalledFunction()->getName() == "malloc") {
                 Value* address = cast<Value>(call);
                 Value* size = call->getOperand(0);
-                builder->SetInsertPoint((&I)->getNextNode());
 
-                std::vector<Value *> args;
+                std::vector<Value*> args;
                 args.push_back(address);
                 args.push_back(size);
 
-                CallInst* call = builder->CreateCall(logMalloc, args, "");
+                builder->SetInsertPoint((&I)->getNextNode());
+                CallInst* call = builder->CreateCall(log_malloc, args, "");
               }
 
-              if (call->getCalledFunction()->getName() == "calloc") {
-                Value* address = cast<Value>(call);
+              if(call->getCalledFunction()->getName() == "calloc") {
                 ConstantInt* amount = dyn_cast<ConstantInt>(call->getOperand(0));
                 ConstantInt* sizeOfOne = dyn_cast<ConstantInt>(call->getOperand(1));
-                Value* size = ConstantInt::get(Type::getInt64Ty(M.getContext()), amount->getSExtValue() * sizeOfOne->getSExtValue());
-                builder->SetInsertPoint((&I)->getNextNode());
+                Value* size = ConstantInt::get(
+                  Int64Ty,
+                  amount->getSExtValue() * sizeOfOne->getSExtValue()
+                );
+                Value* address = cast<Value>(call);
 
-                std::vector<Value *> args;
+                std::vector<Value*> args;
                 args.push_back(address);
                 args.push_back(size);
 
-                CallInst* call = builder->CreateCall(logMalloc, args, "");
+                builder->SetInsertPoint((&I)->getNextNode());
+                CallInst* call = builder->CreateCall(log_malloc, args, "");
               }
 
+              //Free: Log i8* address, i64 line#, and i64 col#
               if (call->getCalledFunction()->getName() == "free") {
                 Value* address = call->getOperand(0);
-                builder->SetInsertPoint((&I)->getNextNode());
+                struct Metadata instrMetadata = getLineAndCol(I);
 
-                std::vector<Type*> argTypes;
-
-                argTypes.push_back(Type::getInt8PtrTy(M.getContext()));
-                FunctionType* logNewFreeType = FunctionType::get(Type::getVoidTy(M.getContext()), argTypes, false);
-                FunctionCallee logNewFree = M.getOrInsertFunction("logFree", logNewFreeType);
-
-
-                std::vector<Value *> args;
+                std::vector<Value*> args;
                 args.push_back(address);
+                args.push_back(ConstantInt::get(
+                  Int64Ty, instrMetadata.line, true
+                ));
+                args.push_back(ConstantInt::get(
+                  Int64Ty, instrMetadata.col, true
+                ));
 
-                CallInst* call = builder->CreateCall(logNewFree, args, "");
+                builder->SetInsertPoint((&I)->getNextNode());
+                CallInst* call = builder->CreateCall(log_free, args, "");
               }
+            }
+
+            //Query: Log i8* address, i64 size, i64 line#, and i64 col#
+            if (LoadInst* load = dyn_cast<LoadInst>(&I)) {
+              Value* uncastAddress = load->getPointerOperand();
+              BitCastInst* bitcast = new BitCastInst(
+                uncastAddress, Int32PtrTy, "l", (&I)->getNextNode()
+              );
+              DataLayout* datalayout = new DataLayout(&M);
+              PointerType* pointerType = cast<PointerType>(uncastAddress->getType());
+              uint64_t unsignSize = datalayout->getTypeStoreSize(pointerType->getPointerElementType());
+              struct Metadata instrMetadata = getLineAndCol(I);
+              
+              Value* address = cast<Value>(bitcast);
+              Value* size = ConstantInt::get(Int64Ty, unsignSize);
+
+              std::vector<Value*> args;
+              args.push_back(address);
+              args.push_back(size);
+              args.push_back(ConstantInt::get(
+                Int64Ty, instrMetadata.line, true
+              ));
+              args.push_back(ConstantInt::get(
+                Int64Ty, instrMetadata.col, true
+              ));
+
+              builder->SetInsertPoint((&I)->getNextNode()->getNextNode());
+              CallInst* call = builder->CreateCall(log_query, args, "");
+            }
+
+            if (StoreInst* store = dyn_cast<StoreInst>(&I)) {
+              Value* uncastAddress = store->getPointerOperand();
+              BitCastInst* bitcast = new BitCastInst(
+                uncastAddress, Int32PtrTy, "l", (&I)->getNextNode()
+              );
+              DataLayout* datalayout = new DataLayout(&M);
+              PointerType* pointerType = cast<PointerType>(uncastAddress->getType());
+              uint64_t unsignSize = datalayout->getTypeStoreSize(pointerType->getPointerElementType());
+              struct Metadata instrMetadata = getLineAndCol(I);
+
+              Value* address = cast<Value>(bitcast);
+              Value* size = ConstantInt::get(Int64Ty, unsignSize);
+
+              std::vector<Value*> args;
+              args.push_back(address);
+              args.push_back(size);
+              args.push_back(ConstantInt::get(
+                Int64Ty, instrMetadata.line, true
+              ));
+              args.push_back(ConstantInt::get(
+                Int64Ty, instrMetadata.col, true
+              ));
+
+              builder->SetInsertPoint((&I)->getNextNode()->getNextNode());
+              CallInst* call = builder->CreateCall(log_query, args, "");
             }
           }
         }
       }
-      return true;
-  
+      return false;
     }
   };
-
 }
 
-char MemPass::ID = 0;
+char SkeletonPass::ID = 0;
 
-static RegisterPass<MemPass> X("mempass", "Memory Pass", true, false);
+// Register the pass so `opt -skeleton` runs it.
+static RegisterPass<SkeletonPass> X("mempass", "detecting memory vulnerabilities");
