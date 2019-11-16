@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+FILE* report;
+
 struct pair {
     int8_t* address;
     int64_t size;
@@ -26,13 +28,15 @@ void initialize() {
     for (int i = 0; i < 1000; ++i) {
         allocationMap[i] = dummyAllocation;
     }
+    report = fopen("report.txt", "w");
 }
 
 // Log user allocations to the global map
-void logMalloc(int8_t* address, int64_t size) {
+void logMalloc(int8_t* address, int64_t size, int64_t line, int64_t col) {
     struct pair newAllocation = {address, size};
     allocationMap[allocationIndex] = newAllocation;
     allocationIndex++;
+    fprintf(report, "Log %ld %ld Malloc %p\n", line, col, address);
 }
 
 // Log stack allocations to the global map
@@ -51,14 +55,17 @@ void logFree(int8_t* address, int64_t line, int64_t col) {
         if (!comparePairs(allocationMap[i], dummyAllocation) &&
             allocationMap[i].address == address) {
             allocationMap[i] = dummyAllocation;
+            fprintf(report, "Log %ld %ld Free %p\n", line, col, address);
             return;
         }
     }
     if (line > -1) {
         printf("Line %ld.%ld: Warning! Attempted Double Free\n", line, col);
+        fprintf(report, "Line %ld.%ld: Warning! Attempted Double Free\n", line, col);
     }
     else {
         printf("Line ?: Warning! Attempted Double Free\n");
+        fprintf(report, "Line ?: Warning! Attempted Double Free\n");
     }
 }
 
@@ -110,9 +117,11 @@ void logQuery(int32_t* address, int64_t size, int64_t line, int64_t col) {
     if (flag < 2) {
       if (line > -1) {
         printf("Line %ld.%ld: Warning! Attempted to Use After Free\n", line, col);
+        fprintf(report, "Line %ld.%ld: Warning! Attempted to Use After Free\n", line, col);
       }
       else {
         printf("Line ?: Warning! Attempted to Use After Free\n");
+        fprintf(report, "Line ?: Warning! Attempted to Use After Free\n");
       }
     }
 }

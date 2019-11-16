@@ -4,6 +4,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/Support/raw_ostream.h"
@@ -50,6 +51,8 @@ namespace {
 
       std::vector<Type*> mallocArgs;
       mallocArgs.push_back(Int8PtrTy);
+      mallocArgs.push_back(Int64Ty);
+      mallocArgs.push_back(Int64Ty);
       mallocArgs.push_back(Int64Ty);
       Constant* log_malloc = M.getOrInsertFunction("logMalloc",
         FunctionType::get(
@@ -122,10 +125,17 @@ namespace {
               if (call->getCalledFunction()->getName() == "malloc") {
                 Value* address = cast<Value>(call);
                 Value* size = call->getOperand(0);
+                struct Metadata instrMetadata = getLineAndCol(I);
 
                 std::vector<Value*> args;
                 args.push_back(address);
                 args.push_back(size);
+                args.push_back(ConstantInt::get(
+                  Int64Ty, instrMetadata.line, true
+                ));
+                args.push_back(ConstantInt::get(
+                  Int64Ty, instrMetadata.col, true
+                ));
 
                 builder->SetInsertPoint((&I)->getNextNode());
                 CallInst* call = builder->CreateCall(log_malloc, args, "");
@@ -139,10 +149,17 @@ namespace {
                   amount->getSExtValue() * sizeOfOne->getSExtValue()
                 );
                 Value* address = cast<Value>(call);
+                struct Metadata instrMetadata = getLineAndCol(I);
 
                 std::vector<Value*> args;
                 args.push_back(address);
                 args.push_back(size);
+                args.push_back(ConstantInt::get(
+                  Int64Ty, instrMetadata.line, true
+                ));
+                args.push_back(ConstantInt::get(
+                  Int64Ty, instrMetadata.col, true
+                ));
 
                 builder->SetInsertPoint((&I)->getNextNode());
                 CallInst* call = builder->CreateCall(log_malloc, args, "");
@@ -224,12 +241,12 @@ namespace {
           }
         }
       }
-      return false;
+      return true;
     }
   };
 }
 
 char SkeletonPass::ID = 0;
 
-// Register the pass so `opt -skeleton` runs it.
+// Register the pass so `opt -mempass` runs it.
 static RegisterPass<SkeletonPass> X("mempass", "detecting memory vulnerabilities");
